@@ -151,12 +151,14 @@ function logout() {
 function setupCanvas(canvas, height) {
   const dpr = window.devicePixelRatio || 1;
   const w = (canvas.clientWidth || canvas.parentElement.clientWidth || 300);
+  let hh = height || 240;
+  if (w < 440 && hh > 200) hh = 200;
   canvas.width = w * dpr;
-  canvas.height = (height || 240) * dpr;
+  canvas.height = hh * dpr;
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, w, height || 240);
-  return { ctx, w, h: height || 240 };
+  ctx.clearRect(0, 0, w, hh);
+  return { ctx, w, h: hh };
 }
 
 function drawDonut(canvas, segments, centerValue, centerLabel) {
@@ -190,95 +192,143 @@ function drawDonut(canvas, segments, centerValue, centerLabel) {
   }
 }
 
-function drawBars(canvas, labels, datasets, opts) {
-  const { ctx, w, h } = setupCanvas(canvas, 240);
-  opts = opts || {};
-  const padL = 40, padB = 26, padT = 16, padR = 8;
-  const plotW = w - padL - padR;
-  const plotH = h - padT - padB;
-  const max = Math.max(1, ...datasets.flatMap(ds => ds.values.map(v => Math.max(0, v))));
-  const n = labels.length || 1;
-  const groupW = plotW / n;
-  const barW = Math.min(26, (groupW * 0.72) / datasets.length);
-  const gridCol = cssVar('--border');
+function niceNum(range) {
+  if (!(range > 0)) return 1;
+  const exp = Math.floor(Math.log10(range));
+  const f = range / Math.pow(10, exp);
+  let nf;
+  if (f <= 1) nf = 1;
+  else if (f <= 2) nf = 2;
+  else if (f <= 5) nf = 5;
+  else nf = 10;
+  return nf * Math.pow(10, exp);
+}
 
-  // сетка и ось
-  ctx.strokeStyle = gridCol;
-  ctx.fillStyle = cssVar('--text-3');
-  ctx.font = '11px -apple-system, Segoe UI, sans-serif';
+function fmtAxis(v) {
+  if (v === 0) return '0';
+  if (Math.abs(v) < 1) return String(Math.round(v * 100) / 100);
+  if (v >= 1000000) return (v / 1000000).toFixed(v % 1000000 === 0 ? 0 : 1) + 'М';
+  if (v >= 1000) return (v / 1000).toFixed(v % 1000 === 0 ? 0 : 1) + 'к';
+  return String(Math.round(v));
+}
+
+function drawAxisGrid(ctx, padL, padR, padT, plotH, w, steps) {
+  ctx.strokeStyle = cssVar('--border');
   ctx.lineWidth = 1;
-  const steps = 4;
   for (let i = 0; i <= steps; i++) {
     const y = padT + plotH - (plotH * i / steps);
     ctx.beginPath();
     ctx.moveTo(padL, y);
     ctx.lineTo(w - padR, y);
     ctx.stroke();
-    const val = max * i / steps;
+  }
+}
+
+function drawBars(canvas, labels, datasets, opts) {
+  const { ctx, w, h } = setupCanvas(canvas, 240);
+  const padL = 46, padB = 26, padT = 16, padR = 10;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+  const n = labels.length || 1;
+  const groupW = plotW / n;
+  const barW = Math.min(26, (groupW * 0.7) / datasets.length);
+  const steps = 4;
+
+  ctx.font = '11px -apple-system, Segoe UI, sans-serif';
+  ctx.fillStyle = cssVar('--text-3');
+  drawAxisGrid(ctx, padL, padR, padT, plotH, w, steps);
+
+  const rawMax = Math.max(0, ...datasets.flatMap(ds => ds.values.map(v => Math.max(0, Number(v) || 0))));
+
+  if (rawMax <= 0) {
     ctx.textAlign = 'right';
-    ctx.fillText(fmtAxis(val), padL - 6, y + 4);
+    ctx.fillText('0', padL - 6, padT + plotH + 4);
+    ctx.textAlign = 'center';
+    ctx.font = '500 12px -apple-system, Segoe UI, sans-serif';
+    ctx.fillText('Пока нет данных за период', padL + plotW / 2, padT + plotH / 2 + 4);
+    ctx.font = '11px -apple-system, Segoe UI, sans-serif';
+    labels.forEach((lab, i) => ctx.fillText(lab, padL + groupW * i + groupW / 2, h - 8));
+    return;
+  }
+
+  const step = niceNum(rawMax / steps);
+  const max = step * steps;
+
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= steps; i++) {
+    const y = padT + plotH - (plotH * i / steps);
+    ctx.fillText(fmtAxis(step * i), padL - 6, y + 4);
   }
 
   labels.forEach((lab, i) => {
     const x = padL + groupW * i + groupW / 2;
     datasets.forEach((ds, di) => {
-      const val = Math.max(0, ds.values[i] || 0);
-      const bh = max ? (val / max) * plotH : 0;
-      const bw = barW;
-      const bx = x - (datasets.length * bw) / 2 + di * bw;
+      const val = Math.max(0, Number(ds.values[i]) || 0);
+      const bh = (val / max) * plotH;
+      const bx = x - (datasets.length * barW) / 2 + di * barW;
       const by = padT + plotH - bh;
       ctx.fillStyle = ds.color;
       ctx.beginPath();
-      if (ctx.roundRect) { ctx.roundRect(bx, by, bw, Math.max(bh, 0.5), 4); ctx.fill(); }
-      else { ctx.rect(bx, by, bw, Math.max(bh, 0.5)); ctx.fill(); }
+      if (ctx.roundRect) { ctx.roundRect(bx, by, barW, Math.max(bh, 1), 4); ctx.fill(); }
+      else { ctx.rect(bx, by, barW, Math.max(bh, 1)); ctx.fill(); }
     });
     ctx.textAlign = 'center';
     ctx.fillStyle = cssVar('--text-3');
     ctx.fillText(lab, x, h - 8);
   });
 }
-function fmtAxis(v) {
-  if (v >= 1000000) return (v / 1000000).toFixed(v % 1000000 === 0 ? 0 : 1) + 'М';
-  if (v >= 1000) return (v / 1000).toFixed(v % 1000 === 0 ? 0 : 1) + 'к';
-  return Math.round(v);
-}
 
 function drawLine(canvas, labels, series) {
   const { ctx, w, h } = setupCanvas(canvas, 220);
-  const padL = 36, padB = 24, padT = 14, padR = 10;
+  const padL = 44, padB = 24, padT = 14, padR = 12;
   const plotW = w - padL - padR, plotH = h - padT - padB;
-  const max = Math.max(1, ...series.flatMap(s => s.values.map(v => Math.max(0, v))));
-  ctx.strokeStyle = cssVar('--border');
-  ctx.fillStyle = cssVar('--text-3');
-  ctx.font = '11px -apple-system, Segoe UI, sans-serif';
   const steps = 4;
+
+  ctx.font = '11px -apple-system, Segoe UI, sans-serif';
+  ctx.fillStyle = cssVar('--text-3');
+  drawAxisGrid(ctx, padL, padR, padT, plotH, w, steps);
+
+  const rawMax = Math.max(0, ...series.flatMap(s => s.values.map(v => Math.max(0, Number(v) || 0))));
+  const step = rawMax <= 0 ? 1 : niceNum(rawMax / steps);
+  const max = step * steps;
+
+  ctx.textAlign = 'right';
   for (let i = 0; i <= steps; i++) {
-    const y = padT + plotH - plotH * i / steps;
-    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
-    ctx.textAlign = 'right'; ctx.fillText(fmtAxis(max * i / steps), padL - 6, y + 4);
+    const y = padT + plotH - (plotH * i / steps);
+    ctx.fillText(fmtAxis(step * i), padL - 6, y + 4);
   }
-  const step = labels.length > 1 ? plotW / (labels.length - 1) : plotW;
+
+  if (rawMax <= 0) {
+    ctx.textAlign = 'center';
+    ctx.font = '500 12px -apple-system, Segoe UI, sans-serif';
+    ctx.fillText('Пока нет данных за период', padL + plotW / 2, padT + plotH / 2 + 4);
+    return;
+  }
+
+  const xStep = labels.length > 1 ? plotW / (labels.length - 1) : plotW;
   series.forEach(s => {
     ctx.strokeStyle = s.color;
     ctx.lineWidth = 2.5;
     ctx.beginPath();
     s.values.forEach((v, i) => {
-      const x = padL + step * i;
-      const y = padT + plotH - (max ? (Math.max(0, v) / max) * plotH : 0);
+      const x = padL + xStep * i;
+      const y = padT + plotH - ((Math.max(0, Number(v) || 0)) / max) * plotH;
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     });
     ctx.stroke();
-    // точки
     s.values.forEach((v, i) => {
-      const x = padL + step * i;
-      const y = padT + plotH - (max ? (Math.max(0, v) / max) * plotH : 0);
-      ctx.beginPath(); ctx.arc(x, y, 3.2, 0, Math.PI * 2); ctx.fillStyle = s.color; ctx.fill();
+      const x = padL + xStep * i;
+      const y = padT + plotH - ((Math.max(0, Number(v) || 0)) / max) * plotH;
+      ctx.beginPath();
+      ctx.arc(x, y, 3.2, 0, Math.PI * 2);
+      ctx.fillStyle = s.color;
+      ctx.fill();
     });
   });
   if (labels.length) {
     ctx.textAlign = 'center'; ctx.fillStyle = cssVar('--text-3');
     ctx.fillText(labels[0], padL, h - 8);
-    if (labels.length > 1) ctx.fillText(labels[labels.length - 1], padL + step * (labels.length - 1), h - 8);
+    if (labels.length > 1) ctx.fillText(labels[labels.length - 1], padL + xStep * (labels.length - 1), h - 8);
   }
 }
 
@@ -834,8 +884,9 @@ function calDayHTML(day) {
   if (iso === calState.selected) cls.push('selected');
   const shown = evts.slice(0, 2).map(e => `<div class="cal-evt">${esc(e.title)}</div>`).join('');
   const more = evts.length > 2 ? `<div class="cal-evt more">+${evts.length - 2}</div>` : '';
+  const dot = evts.length ? '<span class="cal-dot"></span>' : '';
   return `<div class="${cls.join(' ')}" data-action="select-day" data-date="${iso}">
-    <div class="cal-day-num">${day}</div>${shown}${more}
+    <div class="cal-day-num">${day}${dot}</div>${shown}${more}
   </div>`;
 }
 function monthGrid(year, month) {
