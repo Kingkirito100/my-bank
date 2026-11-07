@@ -101,15 +101,35 @@ function defaultData(name) {
     goals: [],
     events: [],
     calculations: [],
+    clients: [],
+    deals: [],
+    recurrings: [],
     chat: [],
-    settings: { theme: 'light', ai: { mode: 'local', provider: 'openrouter', apiKey: '', model: '', baseURL: '' } }
+    settings: { theme: 'light', taxRate: 6, notifications: false, ai: { mode: 'local', provider: 'openrouter', apiKey: '', model: '', baseURL: '' } }
   };
+}
+function normalizeData(d) {
+  if (!d || typeof d !== 'object') d = defaultData();
+  if (!d.profile || typeof d.profile !== 'object') d.profile = { name: '', company: '', currency: '₽' };
+  if (!d.profile.currency) d.profile.currency = '₽';
+  ['transactions', 'tasks', 'goals', 'events', 'calculations', 'clients', 'deals', 'recurrings', 'chat'].forEach(k => {
+    if (!Array.isArray(d[k])) d[k] = [];
+  });
+  if (!d.settings || typeof d.settings !== 'object') d.settings = {};
+  if (typeof d.settings.taxRate !== 'number') d.settings.taxRate = 6;
+  if (typeof d.settings.notifications !== 'boolean') d.settings.notifications = false;
+  if (!d.settings.theme) d.settings.theme = 'light';
+  if (!d.settings.ai || typeof d.settings.ai !== 'object') {
+    d.settings.ai = { mode: 'local', provider: 'openrouter', apiKey: '', model: '', baseURL: '' };
+  }
+  return d;
 }
 function getData() {
   const u = currentUsername();
   if (!u) return null;
-  try { return JSON.parse(localStorage.getItem(LS_DATA + u)) || defaultData(); }
-  catch (e) { return defaultData(); }
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(LS_DATA + u)); } catch (e) { d = null; }
+  return normalizeData(d || defaultData());
 }
 function saveData(d) {
   const u = currentUsername();
@@ -376,8 +396,15 @@ function calcProfit(inputs) {
    ============================================================ */
 const TITLES = {
   dashboard: 'Дашборд', calculator: 'Калькулятор прибыли', finance: 'Финансы',
+  clients: 'Клиенты и сделки', reports: 'Отчёты',
   tasks: 'Задачи', goals: 'Цели', calendar: 'Календарь', assistant: 'ИИ-ассистент', settings: 'Настройки'
 };
+const DEAL_STAGES = [
+  { id: 'new', label: 'Новые', color: '#3b82f6' },
+  { id: 'negotiation', label: 'Переговоры', color: '#f59e0b' },
+  { id: 'offer', label: 'Предложение', color: '#8b5cf6' },
+  { id: 'paid', label: 'Оплачено', color: '#10b981' }
+];
 let currentView = 'dashboard';
 let calState = { year: null, month: null, selected: todayISO() };
 let financeFilter = { month: 'all', type: 'all', q: '' };
@@ -502,6 +529,8 @@ RENDERERS.dashboard = function () {
         ${upcoming.length ? upcoming.map(evtHTML).join('') : '<div class="empty"><div class="empty-ico">📅</div><p>Событий пока нет</p></div>'}
       </div>
     </div>
+
+    ${insightsHTML(d)}
 
     ${d.goals.length ? `
     <div class="card">
@@ -651,6 +680,7 @@ RENDERERS.finance = function () {
         <label class="field" style="flex:1;min-width:150px;"><span>Категория</span><select id="txCategory">${INCOME_CATS.map(c => `<option>${c}</option>`).join('')}</select></label>
         <label class="field" style="flex:1;min-width:140px;"><span>Дата</span><input type="date" id="txDate" value="${todayISO()}"></label>
         <label class="field" style="flex:2;min-width:160px;"><span>Комментарий</span><input type="text" id="txNote" placeholder="необязательно"></label>
+        <label class="check-inline" title="Повторять каждый месяц"><input type="checkbox" id="txRecurring"> 🔁 Каждый месяц</label>
         <button type="submit" class="btn btn-primary">Добавить</button>
       </form>
     </div>
@@ -678,11 +708,29 @@ RENDERERS.finance = function () {
             <option value="all">Все типы</option><option value="income">Доходы</option><option value="expense">Расходы</option>
           </select>
           <input type="text" id="finSearch" placeholder="Поиск по комментарию" style="padding:8px 12px;border:1px solid var(--border);border-radius:9px;background:var(--surface);min-width:150px;">
+          <button class="btn btn-ghost btn-sm" data-action="import-csv">⬆ Импорт CSV</button>
+          <input type="file" id="csvFile" accept=".csv,text/csv" style="display:none;">
           <button class="btn btn-ghost btn-sm" data-action="export-csv">⬇ Экспорт CSV</button>
         </div>
       </div>
       <div id="finList"></div>
     </div>
+
+    ${d.recurrings.length ? `
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">🔁 Повторяющиеся операции</div><div class="card-sub">добавляются автоматически раз в месяц</div></div></div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        ${d.recurrings.map(r => `
+          <div class="client-row">
+            <div class="avatar" style="width:34px;height:34px;font-size:15px;">🔁</div>
+            <div style="flex:1;min-width:0;">
+              <div class="client-name">${esc(r.category)} · ${r.type === 'income' ? '+' : '−'}${fmtMoney(r.amount)}</div>
+              <div class="task-meta">${esc(r.note || 'без комментария')} · день ${r.day}</div>
+            </div>
+            <button class="icon-btn" data-action="delete-recurring" data-id="${r.id}" title="Удалить">🗑</button>
+          </div>`).join('')}
+      </div>
+    </div>` : ''}
   </div>`;
 };
 
@@ -739,6 +787,197 @@ function renderDonutBlock(sel, cats, title, emptyText) {
   box.innerHTML = `<canvas id="${id}" height="230"></canvas>${legendHTML(cats.map(c => ({ label: c.label + ' — ' + fmtMoney(c.value), color: c.color })))}`;
   drawDonut($('#' + id), cats, null, null);
 }
+
+/* ---------- КЛИЕНТЫ И СДЕЛКИ (мини-CRM) ---------- */
+RENDERERS.clients = function () {
+  const d = getData();
+  const paid = d.deals.filter(x => x.stage === 'paid');
+  const paidSum = paid.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+  const active = d.deals.filter(x => x.stage !== 'paid');
+  const activeSum = active.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+  const conv = d.deals.length ? (paid.length / d.deals.length * 100) : 0;
+  const avg = paid.length ? paidSum / paid.length : 0;
+
+  return `
+  <div class="grid" style="gap:20px;">
+    <div class="grid grid-cards">
+      <div class="card stat"><div class="stat-label">Клиенты</div><div class="stat-value">${d.clients.length}</div><div class="stat-hint">в базе</div><div class="stat-ico" style="background:var(--accent-soft);">👥</div></div>
+      <div class="card stat"><div class="stat-label">В работе</div><div class="stat-value">${active.length}</div><div class="stat-hint">${fmtMoney(activeSum)}</div><div class="stat-ico" style="background:var(--amber-soft);">💼</div></div>
+      <div class="card stat positive"><div class="stat-label">Оплачено</div><div class="stat-value">${fmtMoney(paidSum)}</div><div class="stat-hint">${paid.length} сделок</div><div class="stat-ico" style="background:var(--green-soft);">✅</div></div>
+      <div class="card stat"><div class="stat-label">Конверсия</div><div class="stat-value">${conv.toFixed(0)}%</div><div class="stat-hint">средний чек ${fmtMoney(avg)}</div><div class="stat-ico" style="background:var(--accent-soft);">📈</div></div>
+    </div>
+
+    <div class="grid grid-2">
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">👥 Клиенты</div><div class="card-sub">база контактов</div></div></div>
+        <form id="clientForm" class="form-row" style="margin-bottom:14px;">
+          <label class="field" style="flex:2;min-width:140px;"><span>Имя / компания</span><input type="text" id="clientName" placeholder="Иван Петров" required></label>
+          <label class="field" style="flex:1;min-width:120px;"><span>Телефон</span><input type="text" id="clientPhone" placeholder="+7…"></label>
+          <button type="submit" class="btn btn-primary">Добавить</button>
+        </form>
+        <div id="clientList" style="display:flex;flex-direction:column;gap:8px;">
+          ${d.clients.length ? d.clients.map(clientHTML).join('') : '<div class="empty"><div class="empty-ico">👥</div><p>Клиентов пока нет</p></div>'}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">💼 Новая сделка</div><div class="card-sub">добавьте клиента и сумму</div></div></div>
+        <form id="dealForm" class="grid" style="gap:12px;">
+          <label class="field"><span>Сделка</span><input type="text" id="dealTitle" placeholder="Поставка кофе" required></label>
+          <div class="form-grid">
+            <label class="field"><span>Клиент</span><select id="dealClient">${d.clients.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}<option value="">— без клиента —</option></select></label>
+            <label class="field"><span>Сумма</span><input type="number" id="dealAmount" min="0" placeholder="50000" required></label>
+          </div>
+          <label class="field"><span>Этап</span><select id="dealStage">${DEAL_STAGES.map(s => `<option value="${s.id}">${s.label}</option>`).join('')}</select></label>
+          <button type="submit" class="btn btn-primary">Добавить сделку</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">🚀 Воронка продаж</div><div class="card-sub">двигайте сделки по этапам кнопкой →</div></div></div>
+      <div class="pipeline">
+        ${DEAL_STAGES.map(st => {
+          const items = d.deals.filter(x => x.stage === st.id);
+          const sum = items.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+          return `<div class="pipe-col">
+            <div class="pipe-head"><span class="pipe-dot" style="background:${st.color}"></span><span>${st.label}</span><span class="pipe-sum">${fmtMoney(sum)}</span></div>
+            <div class="pipe-body">${items.length ? items.map(dealHTML).join('') : '<div class="pipe-empty">Пусто</div>'}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  </div>`;
+};
+
+function clientHTML(c) {
+  const deals = getData().deals.filter(x => x.clientId === c.id);
+  const paid = deals.filter(x => x.stage === 'paid').reduce((s, x) => s + (Number(x.amount) || 0), 0);
+  return `<div class="client-row">
+    <div class="avatar" style="width:34px;height:34px;font-size:14px;">${esc((c.name || '?')[0]).toUpperCase()}</div>
+    <div style="flex:1;min-width:0;">
+      <div class="client-name">${esc(c.name)}</div>
+      <div class="task-meta">${esc(c.phone || 'без телефона')} · сделок: ${deals.length}${paid ? ' · оплачено ' + fmtMoney(paid) : ''}</div>
+    </div>
+    <button class="icon-btn" data-action="delete-client" data-id="${c.id}" title="Удалить">🗑</button>
+  </div>`;
+}
+
+function dealHTML(deal) {
+  const d = getData();
+  const client = d.clients.find(c => c.id === deal.clientId);
+  const idx = DEAL_STAGES.findIndex(s => s.id === deal.stage);
+  const next = DEAL_STAGES[idx + 1];
+  return `<div class="deal">
+    <div class="deal-top"><span class="deal-title">${esc(deal.title)}</span><button class="deal-del" data-action="delete-deal" data-id="${deal.id}" title="Удалить">✕</button></div>
+    <div class="deal-amount">${fmtMoney(deal.amount)}</div>
+    <div class="deal-client">${client ? esc(client.name) : 'Без клиента'}</div>
+    ${next ? `<button class="btn btn-ghost btn-sm deal-next" data-action="deal-next" data-id="${deal.id}">${next.label} →</button>` : '<span class="badge green">✅ Оплачено</span>'}
+  </div>`;
+}
+
+/* ---------- ОТЧЁТЫ (P&L + прогноз) ---------- */
+let reportMonth = null;
+RENDERERS.reports = function () {
+  const d = getData();
+  const months = [...new Set([...d.transactions.map(t => monthKey(t.date)), todayMonth()])].filter(Boolean).sort().reverse();
+  const m = reportMonth && months.includes(reportMonth) ? reportMonth : months[0];
+  reportMonth = m;
+  const stats = reportStats(d, m);
+  const prev = reportStats(d, prevMonthKey(m));
+  const diff = prev.net !== 0 ? ((stats.net - prev.net) / Math.abs(prev.net)) * 100 : null;
+  const forecast = forecastProfit(d);
+  const cats = aggregateCats(d.transactions.filter(t => t.type === 'expense' && monthKey(t.date) === m));
+  const maxCat = Math.max(1, ...cats.map(c => c.value));
+
+  return `
+  <div class="grid" style="gap:20px;">
+    <div class="card">
+      <div class="card-header">
+        <div><div class="card-title">📈 Отчёт о прибыли и убытках</div><div class="card-sub">${monthLabel(m)}</div></div>
+        <div class="form-row" style="align-items:center;">
+          <select id="reportMonthSelect" style="padding:9px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);color:var(--text);">
+            ${months.map(mm => `<option value="${mm}" ${mm === m ? 'selected' : ''}>${monthLabel(mm)}</option>`).join('')}
+          </select>
+          <button class="btn btn-ghost btn-sm" data-action="export-report" data-month="${m}">⬇ CSV</button>
+          <button class="btn btn-ghost btn-sm" data-action="print-report">🖨 PDF</button>
+        </div>
+      </div>
+      <div class="kpi-row">
+        <div class="kpi"><div class="kpi-label">Выручка</div><div class="kpi-value">${fmtMoney(stats.income)}</div></div>
+        <div class="kpi"><div class="kpi-label">Расходы</div><div class="kpi-value">${fmtMoney(stats.expense)}</div></div>
+        <div class="kpi"><div class="kpi-label">Прибыль до налога</div><div class="kpi-value">${fmtMoney(stats.profit)}</div></div>
+        <div class="kpi"><div class="kpi-label">Налог ${d.settings.taxRate}%</div><div class="kpi-value">${fmtMoney(stats.tax)}</div></div>
+        <div class="kpi ${stats.net >= 0 ? 'positive' : 'negative'}"><div class="kpi-label">Чистая прибыль</div><div class="kpi-value">${fmtMoney(stats.net, '+')}</div></div>
+        <div class="kpi"><div class="kpi-label">Динамика к прошлому</div><div class="kpi-value">${diff == null ? '—' : (diff >= 0 ? '+' : '') + diff.toFixed(0) + '%'}</div></div>
+      </div>
+    </div>
+
+    <div class="grid grid-2">
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">Доходы и расходы по месяцам</div></div></div>
+        <canvas id="reportBars" height="240"></canvas>
+        ${legendHTML([{ label: 'Доход', color: '#10b981' }, { label: 'Расход', color: '#ef4444' }])}
+      </div>
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">Расходы по категориям</div></div></div>
+        ${cats.length ? `<div class="cat-bars">${cats.sort((a, b) => b.value - a.value).map(c => `
+          <div class="cat-bar-row">
+            <div class="cat-bar-label"><span>${esc(c.label)}</span><b>${fmtMoney(c.value)}</b></div>
+            <div class="progress"><div class="progress-fill" style="width:${c.value / maxCat * 100}%;background:${c.color};"></div></div>
+          </div>`).join('')}</div>` : '<div class="empty"><div class="empty-ico">📊</div><p>Расходов за этот месяц нет</p></div>'}
+      </div>
+    </div>
+
+    <div class="grid grid-2">
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">🔮 Прогноз</div></div></div>
+        <div class="kpi-row" style="grid-template-columns:1fr 1fr;">
+          <div class="kpi"><div class="kpi-label">Прогноз на следующий месяц</div><div class="kpi-value ${forecast >= 0 ? 'positive' : 'negative'}">${fmtMoney(forecast, '+')}</div></div>
+          <div class="kpi"><div class="kpi-label">Средняя прибыль за 3 месяца</div><div class="kpi-value">${fmtMoney(avgNet3(d))}</div></div>
+        </div>
+        <p class="task-meta" style="margin-top:10px;">Прогноз считается по среднему значению за последние 3 месяца. Это ориентир, а не гарантия.</p>
+      </div>
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">Налоги</div></div></div>
+        <label class="field" style="max-width:220px;"><span>Ставка налога, %</span>
+          <input type="number" id="taxRateInput" min="0" max="60" step="0.5" value="${d.settings.taxRate}">
+        </label>
+        <button class="btn btn-primary btn-sm" data-action="save-tax" style="margin-top:10px;">Сохранить ставку</button>
+        <p class="task-meta" style="margin-top:10px;">Налог считается с прибыли до налога. Для УСН «доходы» поставьте 6% и учитывайте особенности режима.</p>
+      </div>
+    </div>
+  </div>`;
+};
+
+function monthLabel(m) {
+  if (!m) return '';
+  return new Date(m + '-01T00:00:00').toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+}
+function prevMonthKey(m) {
+  const parts = m.split('-').map(Number);
+  const dt = new Date(parts[0], parts[1] - 2, 1);
+  return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0');
+}
+function reportStats(d, m) {
+  const tx = d.transactions.filter(t => monthKey(t.date) === m);
+  const income = txSum(tx, 'income');
+  const expense = txSum(tx, 'expense');
+  const profit = income - expense;
+  const tax = profit > 0 ? profit * (Number(d.settings.taxRate) || 0) / 100 : 0;
+  return { income, expense, profit, tax, net: profit - tax };
+}
+function avgNet3(d) {
+  const now = new Date();
+  let sum = 0;
+  for (let i = 0; i < 3; i++) {
+    const dt = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0');
+    sum += reportStats(d, key).net;
+  }
+  return sum / 3;
+}
+function forecastProfit(d) { return avgNet3(d); }
 
 /* ---------- ЗАДАЧИ ---------- */
 RENDERERS.tasks = function () {
@@ -921,6 +1160,7 @@ RENDERERS.assistant = function () {
         </div>
         <div class="chat-input-row">
           <input type="text" id="chatInput" placeholder="Спросите о финансах, задачах или продажах…" autocomplete="off">
+          <button class="icon-btn" data-action="voice-chat" title="Голосовой ввод">🎙</button>
           <button class="btn btn-primary" data-action="send-chat">Отправить ➤</button>
         </div>
       </div>
@@ -992,6 +1232,23 @@ RENDERERS.settings = function () {
           <p style="font-size:12px;color:var(--text-3);grid-column:1/-1;">💡 На OpenRouter есть бесплатные модели (суффикс «:free»). Без ключа работает локальный помощник — он отвечает по вашим данным офлайн.</p>
         </div>
         <button class="btn btn-primary" data-action="save-ai" style="grid-column:1/-1;">Сохранить настройки ИИ</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">🔔 Напоминания</div><div class="card-sub">события и просроченные задачи</div></div></div>
+      <div class="grid" style="gap:10px;">
+        <button class="btn btn-ghost" data-action="enable-notifications">${d.settings.notifications ? '✅ Напоминания включены' : '🔔 Включить напоминания'}</button>
+        <button class="btn btn-ghost" data-action="test-notification">Отправить тестовое уведомление</button>
+        <p class="task-meta">Браузер напомнит о событиях на сегодня и просроченных задачах. Работает, пока вкладка открыта.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">📱 Приложение на телефон</div><div class="card-sub">установка в один клик</div></div></div>
+      <div class="grid" style="gap:10px;">
+        <button class="btn btn-primary" data-action="install-pwa">📲 Установить приложение</button>
+        <p class="task-meta">iPhone: «Поделиться» → «На экран Домой». Android/Chrome: меню → «Установить приложение». После установки «Мой Сейф» откроется как обычное приложение и будет работать офлайн.</p>
       </div>
     </div>
 
@@ -1264,6 +1521,17 @@ BINDERS.finance = function () {
 
 BINDERS.tasks = function () { renderTaskList(); };
 
+BINDERS.clients = function () {};
+
+BINDERS.reports = function () {
+  const d = getData();
+  const keys = monthKeys6();
+  drawBars($('#reportBars'), keys.map(k => monthLabel(k).split(' ')[0]), [
+    { label: 'Доход', values: keys.map(k => reportStats(d, k).income), color: '#10b981' },
+    { label: 'Расход', values: keys.map(k => reportStats(d, k).expense), color: '#ef4444' }
+  ]);
+};
+
 BINDERS.goals = function () {};
 
 BINDERS.calendar = function () {};
@@ -1303,6 +1571,12 @@ document.addEventListener('click', function (e) {
     }
 
     case 'export-csv': exportCSV(); break;
+    case 'import-csv': { const f = $('#csvFile'); if (f) f.click(); break; }
+    case 'delete-recurring': {
+      d.recurrings = d.recurrings.filter(x => x.id !== actionEl.dataset.id);
+      saveData(d); navigate('finance'); break;
+    }
+    case 'install-pwa': installPWA(); break;
     case 'delete-tx': {
       const id = actionEl.dataset.id;
       d.transactions = d.transactions.filter(t => t.id !== id);
@@ -1355,6 +1629,40 @@ document.addEventListener('click', function (e) {
       saveData(d); navigate('settings'); break;
     }
     case 'save-ai': saveAiSettings(); break;
+    case 'deal-next': {
+      const deal = d.deals.find(x => x.id === actionEl.dataset.id);
+      if (deal) {
+        const idx = DEAL_STAGES.findIndex(s => s.id === deal.stage);
+        if (idx >= 0 && idx < DEAL_STAGES.length - 1) {
+          deal.stage = DEAL_STAGES[idx + 1].id;
+          saveData(d);
+          navigate('clients');
+          if (deal.stage === 'paid') toast('Сделка оплачена ✅');
+        }
+      }
+      break;
+    }
+    case 'delete-deal': {
+      d.deals = d.deals.filter(x => x.id !== actionEl.dataset.id);
+      saveData(d); navigate('clients'); break;
+    }
+    case 'delete-client': {
+      const cid = actionEl.dataset.id;
+      d.clients = d.clients.filter(x => x.id !== cid);
+      d.deals.forEach(x => { if (x.clientId === cid) x.clientId = ''; });
+      saveData(d); navigate('clients'); break;
+    }
+    case 'export-report': exportReportCSV(actionEl.dataset.month); break;
+    case 'print-report': window.print(); break;
+    case 'save-tax': {
+      const v = Number($('#taxRateInput').value);
+      d.settings.taxRate = isNaN(v) ? 6 : Math.max(0, Math.min(60, v));
+      saveData(d); navigate('reports');
+      toast('Ставка налога сохранена'); break;
+    }
+    case 'voice-chat': startVoice(); break;
+    case 'enable-notifications': enableNotifications(); break;
+    case 'test-notification': testNotification(); break;
     case 'export-json': exportJSON(); break;
     case 'reset-data': resetData(); break;
     case 'delete-account': deleteAccount(); break;
@@ -1382,10 +1690,15 @@ document.addEventListener('submit', function (e) {
     const amount = Number($('#txAmount').value);
     if (!amount || amount <= 0) { toast('Введите корректную сумму'); return; }
     const type = ($('#txCategory').dataset.type || 'income');
-    d.transactions.push({
-      id: uid(), type, amount, category: $('#txCategory').value,
-      date: $('#txDate').value || todayISO(), note: $('#txNote').value.trim()
-    });
+    const category = $('#txCategory').value;
+    const txDate = $('#txDate').value || todayISO();
+    const note = $('#txNote').value.trim();
+    const recurring = !!($('#txRecurring') && $('#txRecurring').checked);
+    d.transactions.push({ id: uid(), type, amount, category, date: txDate, note });
+    if (recurring) {
+      const day = Number(txDate.slice(8, 10)) || 1;
+      d.recurrings.push({ id: uid(), type, amount, category, note, day, lastRun: todayMonth() });
+    }
     saveData(d);
     form.reset();
     $('#txDate').value = todayISO();
@@ -1393,7 +1706,7 @@ document.addEventListener('submit', function (e) {
     $$('#txForm .segmented button').forEach(b => b.classList.toggle('active', b.dataset.type === 'income'));
     $('#txCategory').innerHTML = INCOME_CATS.map(c => `<option>${c}</option>`).join('');
     renderFinanceData();
-    toast('Операция добавлена ✅');
+    toast(recurring ? 'Операция добавлена, будет повторяться 🔁' : 'Операция добавлена ✅');
   }
 
   if (form.id === 'taskForm') {
@@ -1430,6 +1743,27 @@ document.addEventListener('submit', function (e) {
       navigate('goals');
       toast('Цель пополнена: ' + fmtMoney(amount));
     }
+  }
+
+  if (form.id === 'clientForm') {
+    e.preventDefault();
+    const name = $('#clientName').value.trim();
+    if (!name) return;
+    d.clients.push({ id: uid(), name, phone: $('#clientPhone').value.trim(), created: todayISO() });
+    saveData(d);
+    navigate('clients');
+    toast('Клиент добавлен 👥');
+  }
+
+  if (form.id === 'dealForm') {
+    e.preventDefault();
+    const title = $('#dealTitle').value.trim();
+    const amount = Number($('#dealAmount').value);
+    if (!title || !amount || amount <= 0) { toast('Укажите название и сумму сделки'); return; }
+    d.deals.push({ id: uid(), title, amount, clientId: $('#dealClient').value, stage: $('#dealStage').value, created: todayISO() });
+    saveData(d);
+    navigate('clients');
+    toast('Сделка добавлена 💼');
   }
 
   if (form.id === 'profileForm') {
@@ -1484,6 +1818,193 @@ document.addEventListener('click', function (e) {
 /* ============================================================
    14. ДАННЫЕ: ЭКСПОРТ / ИМПОРТ / СБРОС / УДАЛЕНИЕ
    ============================================================ */
+function applyRecurrings() {
+  const d = getData();
+  if (!d || !d.recurrings.length) return;
+  const now = new Date();
+  const key = todayMonth();
+  let changed = false;
+  d.recurrings.forEach(r => {
+    if (r.lastRun === key) return;
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const day = Math.min(Math.max(1, Number(r.day) || 1), daysInMonth);
+    const target = new Date(now.getFullYear(), now.getMonth(), day);
+    if (now >= target) {
+      const iso = target.getFullYear() + '-' + String(target.getMonth() + 1).padStart(2, '0') + '-' + String(target.getDate()).padStart(2, '0');
+      d.transactions.push({
+        id: uid(), type: r.type, amount: Number(r.amount) || 0, category: r.category,
+        date: iso, note: (r.note ? r.note + ' · ' : '') + 'авто-повтор'
+      });
+      r.lastRun = key;
+      changed = true;
+    }
+  });
+  if (changed) saveData(d);
+}
+
+function parseAmount(s) {
+  if (s == null) return null;
+  const cleaned = String(s).replace(/\s/g, '').replace(/[₽$€]/g, '').replace(',', '.');
+  const n = Number(cleaned);
+  return isNaN(n) ? null : n;
+}
+function normalizeDate(s) {
+  if (!s) return null;
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return m[1] + '-' + m[2] + '-' + m[3];
+  m = s.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})/);
+  if (m) return m[3] + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0');
+  const dt = new Date(s);
+  if (!isNaN(dt.getTime())) {
+    return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+  }
+  return null;
+}
+function importCSVText(text) {
+  const d = getData();
+  if (!d || !text) return 0;
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (!lines.length) return 0;
+  const sep = lines[0].includes(';') ? ';' : ',';
+  let added = 0;
+  lines.forEach((line, i) => {
+    const cols = line.split(sep).map(c => c.trim().replace(/^"|"$/g, ''));
+    if (i === 0 && /дата|date/i.test(cols[0])) return;
+    if (cols.length < 3) return;
+    const date = normalizeDate(cols[0]);
+    if (!date) return;
+    const typeRaw = (cols[1] || '').toLowerCase();
+    const type = /доход|income|приход|\+/.test(typeRaw) ? 'income' : 'expense';
+    const a2 = parseAmount(cols[2]);
+    const a3 = parseAmount(cols[3]);
+    let amount = null, category = '';
+    if (a2 != null) { amount = a2; category = cols[3] || ''; }
+    else if (a3 != null) { amount = a3; category = cols[2] || ''; }
+    if (amount == null || amount <= 0) return;
+    if (!category) category = type === 'income' ? 'Продажи' : 'Прочее';
+    d.transactions.push({ id: uid(), type, amount, category, date, note: cols[4] || '' });
+    added++;
+  });
+  if (added) saveData(d);
+  return added;
+}
+
+function exportReportCSV(month) {
+  const d = getData();
+  const m = month || reportMonth || todayMonth();
+  const s = reportStats(d, m);
+  const rows = [];
+  rows.push('Отчёт;' + monthLabel(m));
+  rows.push('Выручка;' + s.income);
+  rows.push('Расходы;' + s.expense);
+  rows.push('Прибыль до налога;' + s.profit);
+  rows.push('Налог;' + s.tax);
+  rows.push('Чистая прибыль;' + s.net);
+  rows.push('');
+  rows.push('Дата;Тип;Категория;Сумма;Комментарий');
+  d.transactions.filter(t => monthKey(t.date) === m).sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+    .forEach(t => rows.push([t.date, t.type === 'income' ? 'Доход' : 'Расход', t.category, t.amount, t.note || ''].join(';')));
+  download('moi-seif-report-' + m + '.csv', '\ufeff' + rows.join('\n'), 'text/csv');
+  toast('Отчёт экспортирован ⬇');
+}
+
+function insightsHTML(d) {
+  const items = [];
+  const m = todayMonth();
+  const cur = reportStats(d, m);
+  const prev = reportStats(d, prevMonthKey(m));
+  if (cur.expense > 0 && prev.expense > 0 && cur.expense > prev.expense * 1.15) {
+    items.push({ ico: '⚠️', text: 'Расходы выросли на ' + Math.round((cur.expense / prev.expense - 1) * 100) + '% к прошлому месяцу.' });
+  }
+  const marketing = d.transactions.filter(t => t.type === 'expense' && t.category === 'Маркетинг' && monthKey(t.date) === m)
+    .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  if (cur.expense > 0 && marketing / cur.expense > 0.25) {
+    items.push({ ico: '📣', text: 'Маркетинг — ' + Math.round(marketing / cur.expense * 100) + '% расходов. Проверьте окупаемость.' });
+  }
+  const overdue = d.tasks.filter(t => !t.done && t.due && t.due < todayISO()).length;
+  if (overdue) items.push({ ico: '⏰', text: 'Просрочено задач: ' + overdue + '. Загляните в «Задачи».' });
+  if (!d.transactions.length) items.push({ ico: '🚀', text: 'Добавьте первую операцию — или нажмите «Демо», чтобы увидеть всё сразу.' });
+  if (cur.net > 0) items.push({ ico: '✅', text: 'Чистая прибыль за месяц: ' + fmtMoney(cur.net) + '. Так держать!' });
+  else if (cur.net < 0) items.push({ ico: '📉', text: 'Месяц в минусе: ' + fmtMoney(cur.net) + '. Проверьте крупные расходы.' });
+  if (!items.length) return '';
+  return `<div class="card insights-card">
+    <div class="card-header"><div><div class="card-title">💡 Подсказки</div><div class="card-sub">на основе ваших данных</div></div></div>
+    <div class="insights">${items.slice(0, 3).map(i => `<div class="insight"><span class="insight-ico">${i.ico}</span><span>${esc(i.text)}</span></div>`).join('')}</div>
+  </div>`;
+}
+
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', function (e) {
+  e.preventDefault();
+  deferredPrompt = e;
+});
+function installPWA() {
+  if (!deferredPrompt) {
+    toast('На телефоне: «Поделиться» → «На экран Домой» (iPhone) или меню → «Установить»');
+    return;
+  }
+  deferredPrompt.prompt();
+  deferredPrompt = null;
+}
+
+function startVoice() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { toast('Голосовой ввод не поддерживается этим браузером'); return; }
+  const rec = new SR();
+  rec.lang = 'ru-RU';
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+  const btn = document.querySelector('[data-action="voice-chat"]');
+  if (btn) btn.textContent = '🔴';
+  rec.onresult = function (e) {
+    const text = e.results[0][0].transcript;
+    const inp = $('#chatInput');
+    if (inp) { inp.value = text; sendChat(); }
+  };
+  rec.onerror = function () { toast('Не удалось распознать голос'); };
+  rec.onend = function () { if (btn) btn.textContent = '🎙'; };
+  try { rec.start(); toast('Говорите…'); }
+  catch (e) { toast('Микрофон недоступен'); }
+}
+
+function enableNotifications() {
+  if (!('Notification' in window)) { toast('Уведомления не поддерживаются'); return; }
+  Notification.requestPermission().then(function (p) {
+    const d = getData();
+    d.settings.notifications = p === 'granted';
+    saveData(d);
+    navigate('settings');
+    toast(p === 'granted' ? 'Напоминания включены 🔔' : 'Разрешение не выдано');
+  });
+}
+function testNotification() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') { toast('Сначала включите напоминания'); return; }
+  new Notification('Мой Сейф', { body: 'Напоминания работают! Здесь будут события и дедлайны.' });
+  toast('Тестовое уведомление отправлено');
+}
+function checkNotifications() {
+  const d = getData();
+  if (!d || !d.settings.notifications) return;
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const today = todayISO();
+  const flag = 'moiseif.notified.' + currentUsername() + '.' + today;
+  if (localStorage.getItem(flag)) return;
+  const todays = d.events.filter(e => e.date === today);
+  const overdue = d.tasks.filter(t => !t.done && t.due && t.due < today);
+  if (!todays.length && !overdue.length) return;
+  const parts = [];
+  if (todays.length) parts.push('Сегодня событий: ' + todays.length + '.');
+  if (overdue.length) parts.push('Просрочено задач: ' + overdue.length + '.');
+  new Notification('Мой Сейф — напоминание', { body: parts.join(' ') });
+  localStorage.setItem(flag, '1');
+}
+
+function registerSW() {
+  if (!('serviceWorker' in navigator)) return;
+  if (location.protocol === 'file:') return;
+  navigator.serviceWorker.register('sw.js').catch(function () {});
+}
+
 function exportCSV() {
   const d = getData();
   const rows = d.transactions.map(t => [t.date, t.type === 'income' ? 'Доход' : 'Расход', t.category, t.amount, t.note || ''].join(';'));
@@ -1545,11 +2066,14 @@ function showAuth() {
 function enterApp() {
   $('#authScreen').classList.add('hidden');
   $('#app').classList.remove('hidden');
+  applyRecurrings();
   const d = getData();
   applyTheme(d.settings.theme || 'light');
   updateSidebarUser();
   $('#todayDate').textContent = new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   navigate('dashboard');
+  setTimeout(checkNotifications, 1200);
+  registerSW();
 }
 function updateSidebarUser() {
   const d = getData();
@@ -1643,6 +2167,22 @@ function seedDemoData() {
     { id: uid(), title: 'Ярмарка кофе', date: dISO(9), time: '10:00', note: 'стенд №12', emoji: '📣' }
   ];
 
+  const cl1 = { id: uid(), name: 'ООО «Ромашка»', phone: '+7 900 111-22-33', created: todayISO() };
+  const cl2 = { id: uid(), name: 'Иван Петров', phone: '+7 900 222-33-44', created: todayISO() };
+  const cl3 = { id: uid(), name: 'Кафе «Утро»', phone: '+7 900 333-44-55', created: todayISO() };
+  data.clients = [cl1, cl2, cl3];
+  data.deals = [
+    { id: uid(), title: 'Поставка зерна, 50 кг', amount: 85000, clientId: cl1.id, stage: 'paid', created: todayISO() },
+    { id: uid(), title: 'Кофейня под ключ', amount: 240000, clientId: cl2.id, stage: 'offer', created: todayISO() },
+    { id: uid(), title: 'Ежемесячное обслуживание', amount: 60000, clientId: cl3.id, stage: 'negotiation', created: todayISO() },
+    { id: uid(), title: 'Дегустация для офиса', amount: 15000, clientId: cl2.id, stage: 'new', created: todayISO() },
+    { id: uid(), title: 'Поставка сиропов', amount: 32000, clientId: cl3.id, stage: 'paid', created: todayISO() }
+  ];
+  data.recurrings = [
+    { id: uid(), type: 'expense', amount: 60000, category: 'Аренда', note: 'Помещение', day: 1, lastRun: todayMonth() },
+    { id: uid(), type: 'expense', amount: 152000, category: 'Зарплата', note: 'Команда', day: 28, lastRun: todayMonth() }
+  ];
+
   data.calculations = [
     { id: uid(), date: dISO(-3), kpis: calcProfit({ revenue: 480000, variableCosts: 190000, fixedCosts: 240000, taxRate: 6 }) },
     { id: uid(), date: dISO(-10), kpis: calcProfit({ revenue: 520000, variableCosts: 210000, fixedCosts: 250000, taxRate: 6 }) }
@@ -1686,6 +2226,19 @@ function initChrome() {
   document.addEventListener('change', function (e) {
     if (e.target.id === 'finMonthFilter') { financeFilter.month = e.target.value; renderFinanceData(); }
     if (e.target.id === 'finTypeFilter') { financeFilter.type = e.target.value; renderFinanceData(); }
+    if (e.target.id === 'reportMonthSelect') { reportMonth = e.target.value; navigate('reports'); }
+    if (e.target.id === 'csvFile') {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function () {
+        const added = importCSVText(String(reader.result || ''));
+        toast(added ? 'Импортировано операций: ' + added : 'Не удалось распознать CSV');
+        if (added) navigate('finance'); else renderFinanceData();
+      };
+      reader.readAsText(file);
+      e.target.value = '';
+    }
     if (e.target.id === 'importFile') {
       const file = e.target.files[0];
       if (!file) return;

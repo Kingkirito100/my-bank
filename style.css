@@ -647,6 +647,103 @@ canvas { display: block; width: 100%; max-width: 100%; }
   * { transition: none !important; animation: none !important; }
 }
 
+/* ============ CRM / СДЕЛКИ ============ */
+.client-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: var(--cell);
+  border-radius: 12px;
+  min-width: 0;
+}
+.client-name { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
+
+.pipeline { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.pipe-col {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px;
+  min-width: 0;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.pipe-head { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--text-2); }
+.pipe-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.pipe-sum { margin-left: auto; font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.pipe-body { display: flex; flex-direction: column; gap: 8px; min-height: 60px; }
+.pipe-empty { font-size: 12px; color: var(--text-3); text-align: center; padding: 12px 0; }
+.deal {
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  display: flex; flex-direction: column; gap: 4px;
+  min-width: 0;
+}
+.deal-top { display: flex; align-items: flex-start; gap: 6px; }
+.deal-title { font-size: 13px; font-weight: 600; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.deal-del { border: none; background: transparent; color: var(--text-3); font-size: 12px; padding: 0 2px; line-height: 1; }
+.deal-del:hover { color: var(--red); }
+.deal-amount { font-size: 15px; font-weight: 800; color: var(--accent); }
+.deal-client { font-size: 11px; color: var(--text-3); overflow-wrap: anywhere; }
+.deal-next { margin-top: 4px; width: 100%; }
+
+/* ============ ОТЧЁТЫ ============ */
+.cat-bars { display: flex; flex-direction: column; gap: 12px; }
+.cat-bar-row { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.cat-bar-label { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--text-2); }
+.cat-bar-label b { color: var(--text); white-space: nowrap; }
+.cat-bar-label span { overflow-wrap: anywhere; }
+
+/* ============ ПОДСКАЗКИ ============ */
+.insights { display: flex; flex-direction: column; gap: 10px; }
+.insight {
+  display: flex; gap: 10px; align-items: flex-start;
+  font-size: 14px; line-height: 1.45;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.insight-ico { font-size: 17px; flex-shrink: 0; }
+
+/* ============ ЧЕКБОКС В ФОРМЕ ============ */
+.check-inline {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 13px; color: var(--text-2); font-weight: 600;
+  padding-bottom: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.check-inline input { width: 17px; height: 17px; accent-color: var(--accent); }
+
+@media (max-width: 760px) {
+  .pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+  .pipeline { grid-template-columns: 1fr; }
+}
+
+/* ============ ПЕЧАТЬ / PDF ============ */
+@media print {
+  .sidebar, .topbar, .nav, .btn, .icon-btn, .chips, .chat-input-row, .segmented, .modal-root, .toast { display: none !important; }
+  html, body { background: #fff !important; }
+  .app { display: block; }
+  .main { display: block; }
+  .content { padding: 0; max-width: none; }
+  .card {
+    background: #fff !important;
+    border: 1px solid #ddd !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    break-inside: avoid;
+  }
+  .grid { display: block; }
+  .grid > * { margin-bottom: 12px; }
+  canvas { max-height: 260px; }
+}
+
 /* ============ СКРОЛЛБАР ============ */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 20px; }
