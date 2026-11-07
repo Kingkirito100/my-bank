@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Мой Сейф — личный бизнес-ассистент и консультант по продажам: учёт финансов, калькулятор прибыли, задачи, цели, умный календарь и ИИ-агент.">
+  <title>Мой Сейф — личный бизнес-ассистент</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ============ ЭКРАН ВХОДА / РЕГИСТРАЦИИ ============ -->
+  <div id="authScreen" class="auth-screen">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <div class="logo-badge">🔐</div>
+        <h1 class="auth-title">Мой Сейф</h1>
+        <p class="auth-subtitle">Личный бизнес-ассистент и консультант по продажам</p>
+      </div>
+
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-authtab="login" id="tabLogin">Вход</button>
+        <button class="auth-tab" data-authtab="register" id="tabRegister">Регистрация</button>
+      </div>
+
+      <!-- Вход -->
+      <form id="loginForm" class="auth-form" autocomplete="off">
+        <label class="field">
+          <span>Логин</span>
+          <input type="text" id="loginUser" placeholder="например, ivan" required>
+        </label>
+        <label class="field">
+          <span>Пароль</span>
+          <input type="password" id="loginPass" placeholder="••••••••" required>
+        </label>
+        <button type="submit" class="btn btn-primary btn-block">Войти</button>
+        <p class="auth-error" id="loginError"></p>
+      </form>
+
+      <!-- Регистрация -->
+      <form id="registerForm" class="auth-form hidden" autocomplete="off">
+        <label class="field">
+          <span>Имя (как к вам обращаться)</span>
+          <input type="text" id="regName" placeholder="Иван" required>
+        </label>
+        <label class="field">
+          <span>Логин</span>
+          <input type="text" id="regUser" placeholder="ivan" required>
+        </label>
+        <label class="field">
+          <span>Пароль</span>
+          <input type="password" id="regPass" placeholder="минимум 4 символа" required>
+        </label>
+        <button type="submit" class="btn btn-primary btn-block">Создать аккаунт</button>
+        <p class="auth-error" id="registerError"></p>
+      </form>
+
+      <button type="button" class="btn btn-ghost btn-block" id="demoBtn" style="margin-top:12px;">▶ Посмотреть демо (пример данных)</button>
+
+      <p class="auth-note">🔒 Данные хранятся локально в вашем браузере. Каждый аккаунт — отдельная «сессия» с личными данными. Бесплатно и без сервера.</p>
+    </div>
+  </div>
+
+  <!-- ============ ОСНОВНОЕ ПРИЛОЖЕНИЕ ============ -->
+  <div id="app" class="app hidden">
+    <!-- Сайдбар -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <div class="logo-badge">🔐</div>
+        <div>
+          <div class="sidebar-title">Мой Сейф</div>
+          <div class="sidebar-tagline">бизнес-ассистент</div>
+        </div>
+      </div>
+
+      <nav class="nav" id="nav">
+        <button class="nav-item" data-view="dashboard"><span class="nav-ico">📊</span> Дашборд</button>
+        <button class="nav-item" data-view="calculator"><span class="nav-ico">🧮</span> Калькулятор прибыли</button>
+        <button class="nav-item" data-view="finance"><span class="nav-ico">💰</span> Финансы</button>
+        <button class="nav-item" data-view="tasks"><span class="nav-ico">✅</span> Задачи</button>
+        <button class="nav-item" data-view="goals"><span class="nav-ico">🎯</span> Цели</button>
+        <button class="nav-item" data-view="calendar"><span class="nav-ico">📅</span> Календарь</button>
+        <button class="nav-item" data-view="assistant"><span class="nav-ico">🤖</span> ИИ-ассистент</button>
+        <button class="nav-item" data-view="settings"><span class="nav-ico">⚙️</span> Настройки</button>
+      </nav>
+
+      <div class="sidebar-user">
+        <div class="avatar" id="sidebarAvatar">И</div>
+        <div class="sidebar-user-info">
+          <div class="sidebar-user-name" id="sidebarUserName">Пользователь</div>
+          <div class="sidebar-user-role" id="sidebarCompany">Личный кабинет</div>
+        </div>
+        <button class="icon-btn" id="logoutBtn" title="Выйти">⏻</button>
+      </div>
+    </aside>
+
+    <!-- Основная область -->
+    <div class="main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-btn menu-btn" id="menuBtn" title="Меню">☰</button>
+          <h2 class="page-title" id="pageTitle">Дашборд</h2>
+        </div>
+        <div class="topbar-right">
+          <span class="today" id="todayDate"></span>
+          <button class="icon-btn" id="themeToggle" title="Сменить тему">🌙</button>
+        </div>
+      </header>
+
+      <main class="content" id="viewContainer">
+        <!-- Виды рендерятся через JS -->
+      </main>
+    </div>
+  </div>
+
+  <!-- Модальное окно -->
+  <div id="modalRoot" class="modal-root hidden">
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal" id="modalBox">
+      <button class="modal-close" data-close-modal>✕</button>
+      <div id="modalContent"></div>
+    </div>
+  </div>
+
+  <!-- Тост-уведомления -->
+  <div id="toast" class="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
