@@ -105,7 +105,7 @@ function defaultData(name) {
     deals: [],
     recurrings: [],
     chat: [],
-    settings: { theme: 'light', taxRate: 6, notifications: false, ai: { mode: 'local', provider: 'openrouter', apiKey: '', model: '', baseURL: '' } }
+    settings: { theme: 'light', accent: 'indigo', compact: false, taxRate: 6, notifications: false, ai: { mode: 'local', provider: 'openrouter', apiKey: '', model: '', baseURL: '' } }
   };
 }
 function normalizeData(d) {
@@ -119,6 +119,8 @@ function normalizeData(d) {
   if (typeof d.settings.taxRate !== 'number') d.settings.taxRate = 6;
   if (typeof d.settings.notifications !== 'boolean') d.settings.notifications = false;
   if (!d.settings.theme) d.settings.theme = 'light';
+  if (!d.settings.accent) d.settings.accent = 'indigo';
+  if (typeof d.settings.compact !== 'boolean') d.settings.compact = false;
   if (!d.settings.ai || typeof d.settings.ai !== 'object') {
     d.settings.ai = { mode: 'local', provider: 'openrouter', apiKey: '', model: '', baseURL: '' };
   }
@@ -405,6 +407,14 @@ const DEAL_STAGES = [
   { id: 'offer', label: 'Предложение', color: '#8b5cf6' },
   { id: 'paid', label: 'Оплачено', color: '#10b981' }
 ];
+const ACCENTS = {
+  indigo: { name: 'Индиго', a: '#6366f1', b: '#8b5cf6' },
+  violet: { name: 'Фиолет', a: '#a855f7', b: '#d946ef' },
+  blue:   { name: 'Синий', a: '#3b82f6', b: '#06b6d4' },
+  green:  { name: 'Зелёный', a: '#10b981', b: '#34d399' },
+  orange: { name: 'Оранжевый', a: '#f59e0b', b: '#fb923c' },
+  rose:   { name: 'Розовый', a: '#ec4899', b: '#f43f5e' }
+};
 let currentView = 'dashboard';
 let calState = { year: null, month: null, selected: todayISO() };
 let financeFilter = { month: 'all', type: 'all', q: '' };
@@ -1204,11 +1214,25 @@ RENDERERS.settings = function () {
     </div>
 
     <div class="card">
-      <div class="card-header"><div><div class="card-title">🎨 Оформление</div></div></div>
-      <div class="form-grid">
-        <div class="segmented" style="grid-column:1/-1;">
-          <button class="${d.settings.theme !== 'dark' ? 'active' : ''}" data-action="set-theme" data-t="light">☀️ Светлая</button>
+      <div class="card-header"><div><div class="card-title">🎨 Оформление</div><div class="card-sub">тема, акцент и плотность</div></div></div>
+      <div class="grid" style="gap:16px;">
+        <div class="segmented">
+          <button class="${d.settings.theme === 'light' ? 'active' : ''}" data-action="set-theme" data-t="light">☀️ Светлая</button>
           <button class="${d.settings.theme === 'dark' ? 'active' : ''}" data-action="set-theme" data-t="dark">🌙 Тёмная</button>
+          <button class="${d.settings.theme === 'auto' ? 'active' : ''}" data-action="set-theme" data-t="auto">🖥 Авто</button>
+        </div>
+        <div>
+          <div class="field" style="margin-bottom:8px;"><span>Акцентный цвет</span></div>
+          <div class="accent-grid">
+            ${Object.keys(ACCENTS).map(k => `<button class="accent-swatch ${d.settings.accent === k ? 'active' : ''}" style="background:linear-gradient(135deg,${ACCENTS[k].a},${ACCENTS[k].b});" data-action="set-accent" data-accent="${k}" title="${ACCENTS[k].name}" aria-label="${ACCENTS[k].name}"></button>`).join('')}
+          </div>
+        </div>
+        <div>
+          <div class="field" style="margin-bottom:8px;"><span>Плотность интерфейса</span></div>
+          <div class="segmented">
+            <button class="${!d.settings.compact ? 'active' : ''}" data-action="set-density" data-compact="0">Обычно</button>
+            <button class="${d.settings.compact ? 'active' : ''}" data-action="set-density" data-compact="1">Компактно</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1217,8 +1241,8 @@ RENDERERS.settings = function () {
       <div class="card-header"><div><div class="card-title">🤖 ИИ-агент</div><div class="card-sub">настройка связи с ИИ</div></div></div>
       <div class="grid" style="gap:14px;">
         <div class="segmented" style="grid-column:1/-1;">
-          <button class="${ai.mode !== 'remote' ? 'active' : ''}" data-action="ai-mode" data-m="local">⚡ Локальный (бесплатно)</button>
-          <button class="${ai.mode === 'remote' ? 'active' : ''}" data-action="ai-mode" data-m="remote">🌐 Внешний ИИ (API)</button>
+          <button class="${ai.mode !== 'remote' ? 'active' : ''}" data-action="ai-mode" data-m="local">⚡ Локальный</button>
+          <button class="${ai.mode === 'remote' ? 'active' : ''}" data-action="ai-mode" data-m="remote">🌐 Внешний API</button>
         </div>
         <div id="aiRemoteFields" class="grid" style="gap:12px;grid-column:1/-1;${ai.mode !== 'remote' ? 'display:none;' : ''}">
           <label class="field"><span>Провайдер</span>
@@ -1624,6 +1648,21 @@ document.addEventListener('click', function (e) {
     case 'clear-chat': clearChat(); break;
 
     case 'set-theme': setTheme(actionEl.dataset.t); navigate('settings'); break;
+    case 'set-accent': {
+      d.settings.accent = actionEl.dataset.accent;
+      saveData(d);
+      applyAccent(d.settings.accent);
+      navigate('settings');
+      toast('Акцент изменён 🎨');
+      break;
+    }
+    case 'set-density': {
+      d.settings.compact = actionEl.dataset.compact === '1';
+      saveData(d);
+      applyCompact(d.settings.compact);
+      navigate('settings');
+      break;
+    }
     case 'ai-mode': {
       d.settings.ai.mode = actionEl.dataset.m;
       saveData(d); navigate('settings'); break;
@@ -2043,13 +2082,40 @@ function setTheme(theme) {
   saveData(d);
   applyTheme(theme);
 }
+function resolvedTheme(theme) {
+  if (theme === 'auto') {
+    return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  }
+  return theme === 'dark' ? 'dark' : 'light';
+}
 function applyTheme(theme) {
-  document.documentElement.dataset.theme = theme;
-  $('#themeToggle').textContent = theme === 'dark' ? '☀️' : '🌙';
+  const resolved = resolvedTheme(theme);
+  document.documentElement.dataset.theme = resolved;
+  const toggle = $('#themeToggle');
+  if (toggle) toggle.textContent = theme === 'auto' ? '🖥' : (resolved === 'dark' ? '☀️' : '🌙');
   if (currentView && RENDERERS[currentView]) {
-    // перерисовать активный вид для обновления цветов графиков
     navigate(currentView);
   }
+}
+function hexToRgb(hex) {
+  const h = String(hex).replace('#', '');
+  const full = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+  const n = parseInt(full, 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+function applyAccent(key) {
+  const acc = ACCENTS[key] || ACCENTS.indigo;
+  const root = document.documentElement;
+  const rgb = hexToRgb(acc.a);
+  root.style.setProperty('--accent', acc.a);
+  root.style.setProperty('--accent-2', acc.b);
+  root.style.setProperty('--accent-soft', 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',0.14)');
+  root.style.setProperty('--accent-rgb', rgb.r + ',' + rgb.g + ',' + rgb.b);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', acc.a);
+}
+function applyCompact(on) {
+  document.body.classList.toggle('compact', !!on);
 }
 
 /* ============================================================
@@ -2068,6 +2134,8 @@ function enterApp() {
   $('#app').classList.remove('hidden');
   applyRecurrings();
   const d = getData();
+  applyAccent(d.settings.accent);
+  applyCompact(d.settings.compact);
   applyTheme(d.settings.theme || 'light');
   updateSidebarUser();
   $('#todayDate').textContent = new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -2212,8 +2280,17 @@ function initChrome() {
   $('#logoutBtn').addEventListener('click', logout);
   $('#themeToggle').addEventListener('click', function () {
     const d = getData();
-    setTheme(d.settings.theme === 'dark' ? 'light' : 'dark');
+    const resolved = resolvedTheme(d.settings.theme);
+    setTheme(resolved === 'dark' ? 'light' : 'dark');
   });
+  if (window.matchMedia) {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onScheme = function () {
+      const dd = getData();
+      if (dd && dd.settings.theme === 'auto') applyTheme('auto');
+    };
+    if (mq.addEventListener) mq.addEventListener('change', onScheme);
+  }
   $('#menuBtn').addEventListener('click', () => $('#sidebar').classList.toggle('open'));
   $$('#nav .nav-item').forEach(item => item.addEventListener('click', () => {
     navigate(item.dataset.view);
